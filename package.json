@@ -1,0 +1,16 @@
+{
+  "name": "damas-clasicas",
+  "version": "1.0.0",
+  "description": "Juego de Damas Clásicas con damas voladoras, IA y multijugador online con Firebase",
+  "scripts": {
+    "test": "node tests/rules.test.js"
+  },
+  "keywords": [
+    "damas",
+    "checkers",
+    "firebase",
+    "game"
+  ],
+  "author": "",
+  "license": "MIT"
+}

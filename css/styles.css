@@ -1,0 +1,388 @@
+:root {
+  --ink: #2c1a10;
+  --cream: #f7efde;
+  --wood: #61391e;
+  --wood-dark: #311b0e;
+  --light: #e8d5b7;
+  --dark: #77482b;
+  --gold: #f5be32;
+  --red: #d85645;
+  --green: #2e8b57;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #286542, #102d1d);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: var(--ink);
+  padding: 18px;
+}
+
+.app {
+  max-width: 650px;
+  margin: auto;
+}
+
+header {
+  text-align: center;
+  color: #fff;
+  margin: 4px 0 18px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+
+h1 {
+  margin: 0;
+  font-size: 2.2rem;
+}
+
+header p {
+  margin: 6px 0;
+  font-size: 1rem;
+  color: #dbebe0;
+}
+
+.panel,
+.player,
+.status,
+.modal-card {
+  background: var(--cream);
+  border: 2px solid #c5a57a;
+  border-radius: 14px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.35);
+}
+
+.setup {
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+}
+
+.setup h2 {
+  margin: 0;
+  color: var(--wood-dark);
+}
+
+.choice-group {
+  display: grid;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.choices {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.choice,
+.secondary {
+  background: #fff9ef;
+  border: 1px solid #9b704a;
+  color: var(--ink);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.choice.selected {
+  background: var(--wood);
+  color: #fff;
+  border-color: var(--wood-dark);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+button:hover {
+  filter: brightness(1.06);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+.primary {
+  border: 0;
+  border-radius: 9px;
+  padding: 14px 18px;
+  background: linear-gradient(#754625, #432312);
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+  transition: filter 0.15s;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.topline {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+/* Fila para compartir enlace en modo online */
+.share {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  background: var(--cream);
+  padding: 8px 12px;
+  border: 1px solid #c5a57a;
+  border-radius: 10px;
+  align-items: center;
+}
+
+.share input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  font-size: 0.92rem;
+  border: 1px solid #9b704a;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-family: inherit;
+  outline: none;
+}
+
+.share input:focus {
+  border-color: var(--wood);
+  box-shadow: 0 0 0 2px rgba(97, 57, 30, 0.2);
+}
+
+.share button {
+  white-space: nowrap;
+}
+
+.players {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.player {
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+  border-width: 2px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.player.active {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(245, 190, 50, 0.5), 0 5px 15px rgba(0, 0, 0, 0.25);
+  background: #fffbf3;
+}
+
+.player b {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.player small {
+  color: #654;
+  font-size: 0.88rem;
+}
+
+.token {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.token.white {
+  background: #fffdf5;
+  border: 2px solid #a89070;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.token.black {
+  background: #25130b;
+  border: 2px solid #090504;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.status {
+  text-align: center;
+  padding: 12px;
+  margin: 12px 0;
+  font-weight: 700;
+  font-size: 1rem;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.board {
+  width: min(100%, 600px);
+  margin: auto;
+  aspect-ratio: 1;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  border: 10px solid var(--wood-dark);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.6);
+}
+
+.square {
+  border: 0;
+  position: relative;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  outline: none;
+}
+
+.square.light {
+  background: var(--light);
+}
+
+.square.dark {
+  background: var(--dark);
+  cursor: pointer;
+}
+
+.square.selected {
+  box-shadow: inset 0 0 0 4px var(--gold);
+}
+
+/* Indicador de casilla destino */
+.square.target::after {
+  content: "";
+  width: 28%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #3ee078;
+  box-shadow: 0 0 10px #3ee078;
+  position: absolute;
+  z-index: 3;
+}
+
+/* Indicador de captura */
+.square.capture::after {
+  content: "";
+  position: absolute;
+  width: 70%;
+  aspect-ratio: 1;
+  border: 3px dashed var(--red);
+  border-radius: 50%;
+  background: rgba(216, 86, 69, 0.3);
+  z-index: 3;
+}
+
+.piece {
+  position: relative;
+  z-index: 2;
+  width: 78%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  box-shadow: inset 0 4px 4px rgba(255, 255, 255, 0.45), 0 4px 6px rgba(0, 0, 0, 0.55);
+  border: 3px solid;
+  transition: transform 0.1s ease-in-out;
+}
+
+.piece:hover {
+  transform: scale(1.04);
+}
+
+.piece.white {
+  background: radial-gradient(circle at 35% 30%, #ffffff, #d5c3a7);
+  border-color: #a88d6c;
+}
+
+.piece.black {
+  background: radial-gradient(circle at 35% 30%, #71533d, #1d0d06 65%);
+  border-color: #110905;
+}
+
+/* Indicador de dama coronada */
+.piece.king::before {
+  content: "♛";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--gold);
+  font-size: clamp(20px, 4.2vw, 36px);
+  text-shadow: 0 1px 2px #432;
+}
+
+.hint {
+  text-align: center;
+  color: #e5f2e8;
+  margin: 12px 0 0;
+  font-size: 0.92rem;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  z-index: 100;
+}
+
+.modal-card {
+  max-width: 380px;
+  width: 100%;
+  text-align: center;
+  padding: 28px;
+}
+
+.modal-card h2 {
+  margin: 10px 0 6px;
+  color: var(--wood-dark);
+}
+
+.modal-card p {
+  color: #543;
+  margin: 0 0 20px;
+  font-size: 0.96rem;
+}
+
+.cup {
+  font-size: 48px;
+}
+
+@media (max-width: 480px) {
+  body {
+    padding: 12px;
+  }
+
+  h1 {
+    font-size: 1.8rem;
+  }
+
+  .board {
+    border-width: 6px;
+  }
+
+  .players {
+    gap: 8px;
+  }
+
+  .player {
+    padding: 8px;
+  }
+
+  .share {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
