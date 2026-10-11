@@ -1,6 +1,6 @@
 /**
  * Controlador de interfaz y flujo de juego de Damas Clásicas.
- * Soporta modos: local (dos jugadores), online (Firebase) e IA (Minimax).
+ * Optimizado para experiencia móvil (Mobile-First), táctil y multijugador online.
  */
 
 const ui = {
@@ -11,12 +11,14 @@ const ui = {
   selected: null,
   forced: null,            // [r, c] de captura encadenada obligatoria
   captured: { white: 0, black: 0 },
+  lastMove: null,          // { from: [r, c], to: [r, c] }
   over: false,
   winner: null,
   reason: null,
   busy: false,
   roomId: null,
   player: null,            // WHITE | BLACK | 'spectator'
+  flipped: false,          // Inversión de tablero (auto para negras)
   roomRef: null,
   connected: false,
   gameId: null,
@@ -73,6 +75,7 @@ function publicState() {
     turn: ui.turn,
     forced: ui.forced,
     captured: ui.captured,
+    lastMove: ui.lastMove,
     over: ui.over,
     winner: ui.winner,
     reason: ui.reason,
@@ -87,10 +90,13 @@ function applyRemoteState(state) {
   if (!state) return;
 
   const previousOver = ui.over;
+  const previousLastMove = ui.lastMove;
+
   ui.board = state.board;
   ui.turn = state.turn;
   ui.forced = state.forced;
   ui.captured = state.captured || { white: 0, black: 0 };
+  ui.lastMove = state.lastMove || null;
   ui.over = Boolean(state.over);
   ui.winner = state.winner || null;
   ui.reason = state.reason || null;
@@ -98,9 +104,22 @@ function applyRemoteState(state) {
   ui.selected = null;
   ui.busy = false;
 
+  // Si recibimos un movimiento nuevo del rival, reproducir sonido
+  if (state.lastMove && (!previousLastMove || state.lastMove.to[0] !== previousLastMove.to[0] || state.lastMove.to[1] !== previousLastMove.to[1])) {
+    const isCapture = Math.abs(state.lastMove.from[0] - state.lastMove.to[0]) > 1;
+    if (isCapture) sounds.playCapture();
+    else sounds.playMove();
+  }
+
+  // Auto-flip si somos Negras
+  if (ui.mode === 'online' && ui.player === BLACK) {
+    ui.flipped = true;
+  }
+
   render();
 
   if (ui.over) {
+    sounds.playWin();
     showGameOver(ui.winner, ui.reason, false);
   } else if (previousOver) {
     // Si la partida anterior estaba finalizada y llega un nuevo estado no finalizado (reinicio remoto)
@@ -162,7 +181,6 @@ async function connectRoom() {
   ui.roomRef = db.ref(`checkers-rooms/${ui.roomId}`);
 
   try {
-    // Asignación transaccional de roles (blancas / negras / espectador)
     const result = await ui.roomRef.transaction(room => {
       room = room || { state: publicState(), players: {} };
       room.players = room.players || {};
@@ -189,7 +207,13 @@ async function connectRoom() {
     ui.player = roomData?.players?.[playerId] || 'spectator';
     ui.connected = true;
 
-    // Escuchar cambios de estado en tiempo real
+    // Si somos Negras, orientamos el tablero automáticamente para jugar desde abajo
+    if (ui.player === BLACK) {
+      ui.flipped = true;
+    } else {
+      ui.flipped = false;
+    }
+
     ui.roomRef.child('state').on('value', snapshot => {
       const data = snapshot.val();
       if (data) {
@@ -209,7 +233,6 @@ async function connectRoom() {
  * Inicia o reinicia una partida.
  */
 function start(isRestart = false) {
-  // Cancelar temporizadores activos de IA
   if (ui.aiTimeout) {
     clearTimeout(ui.aiTimeout);
     ui.aiTimeout = null;
@@ -224,6 +247,7 @@ function start(isRestart = false) {
     ui.selected = null;
     ui.forced = null;
     ui.captured = { white: 0, black: 0 };
+    ui.lastMove = null;
     ui.over = false;
     ui.winner = null;
     ui.reason = null;
@@ -236,7 +260,6 @@ function start(isRestart = false) {
     return;
   }
 
-  // Limpiar conexión previa si existía
   if (ui.roomRef) {
     ui.roomRef.off();
     ui.roomRef = null;
@@ -248,11 +271,13 @@ function start(isRestart = false) {
     selected: null,
     forced: null,
     captured: { white: 0, black: 0 },
+    lastMove: null,
     over: false,
     winner: null,
     reason: null,
     busy: false,
     player: null,
+    flipped: false,
     connected: false,
     gameId: newGameId
   });
@@ -269,6 +294,8 @@ function start(isRestart = false) {
     }
   }
 
+  // En pantalla pequeña compactamos la app al entrar al juego
+  document.body.classList.add('playing');
   $('setup').classList.add('hidden');
   $('game').classList.remove('hidden');
   $('resultModal').classList.add('hidden');
@@ -278,17 +305,27 @@ function start(isRestart = false) {
 }
 
 /**
- * Dibuja el tablero y los paneles de estado.
+ * Dibuja el tablero y los paneles de estado, soportando inversión de perspectiva.
  */
 function render() {
   const boardEl = $('board');
   const legal = ui.over ? [] : CheckersRules.legalSteps(ui.board, ui.turn, ui.forced);
   const moves = selectedMoves(legal);
 
+  // Fichas con captura obligatoria
+  const hasCapture = legal.some(m => Boolean(m.capture));
+  const mustCaptureOrigins = hasCapture
+    ? new Set(legal.filter(m => Boolean(m.capture)).map(m => `${m.from[0]},${m.from[1]}`))
+    : new Set();
+
   boardEl.innerHTML = '';
 
-  for (let r = 0; r < SIZE; r++) {
-    for (let c = 0; c < SIZE; c++) {
+  // Determinar orden de iteración de filas y columnas según perspectiva
+  const rows = ui.flipped ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
+  const cols = ui.flipped ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
+
+  for (const r of rows) {
+    for (const c of cols) {
       const cell = document.createElement('button');
       const piece = ui.board[r][c];
       const isDark = (r + c) % 2 === 1;
@@ -296,6 +333,14 @@ function render() {
       cell.className = `square ${isDark ? 'dark' : 'light'}`;
       cell.setAttribute('role', 'gridcell');
       cell.setAttribute('aria-label', `${String.fromCharCode(65 + c)}${8 - r}`);
+
+      // Resaltar último movimiento (origen y destino)
+      if (ui.lastMove) {
+        if ((ui.lastMove.from[0] === r && ui.lastMove.from[1] === c) ||
+            (ui.lastMove.to[0] === r && ui.lastMove.to[1] === c)) {
+          cell.classList.add('last-move');
+        }
+      }
 
       if (ui.selected?.[0] === r && ui.selected?.[1] === c) {
         cell.classList.add('selected');
@@ -308,7 +353,8 @@ function render() {
 
       if (piece) {
         const pieceEl = document.createElement('span');
-        pieceEl.className = `piece ${piece.color} ${piece.king ? 'king' : ''}`;
+        const isMustCapture = piece.color === ui.turn && mustCaptureOrigins.has(`${r},${c}`);
+        pieceEl.className = `piece ${piece.color} ${piece.king ? 'king' : ''} ${isMustCapture ? 'must-capture' : ''}`;
         cell.append(pieceEl);
       }
 
@@ -336,7 +382,6 @@ function render() {
   $('whiteLabel').textContent = whiteLabelText;
   $('blackLabel').textContent = blackLabelText;
 
-  // Mensaje de estado superior
   renderStatus(legal);
 }
 
@@ -362,7 +407,7 @@ function renderStatus(legal) {
   }
 
   const hasCapture = legal.some(m => Boolean(m.capture));
-  const captureNote = hasCapture ? ' · ¡Captura obligatoria!' : '';
+  const captureNote = hasCapture ? ' · ¡Debes capturar!' : '';
 
   if (ui.mode === 'online') {
     if (ui.player === 'spectator') {
@@ -372,7 +417,7 @@ function renderStatus(legal) {
     const isMyTurn = ui.player === ui.turn;
     statusEl.textContent = isMyTurn
       ? `Tu turno (${ui.player === WHITE ? 'blancas' : 'negras'})${captureNote}`
-      : `Esperando al rival… (${getPlayerName(ui.turn)})`;
+      : `Esperando a tu rival… (${getPlayerName(ui.turn)})`;
     return;
   }
 
@@ -380,7 +425,7 @@ function renderStatus(legal) {
 }
 
 /**
- * Gestión del clic en una casilla del tablero.
+ * Gestión del clic / toque en una casilla del tablero.
  */
 function clickSquare(r, c) {
   if (ui.over || ui.busy) return;
@@ -400,13 +445,17 @@ function clickSquare(r, c) {
   // Si la captura encadenada está forzada, no se permite cambiar de pieza
   if (ui.forced) return;
 
-  // Seleccionar o deseleccionar pieza propia que tenga movimientos válidos
+  // Deseleccionar al pulsar en la misma ficha o en una casilla vacía
+  if (ui.selected && (!ui.board[r][c] || (ui.selected[0] === r && ui.selected[1] === c))) {
+    ui.selected = null;
+    render();
+    return;
+  }
+
+  // Seleccionar pieza propia que tenga movimientos válidos
   if (ui.board[r][c]?.color === ui.turn && legal.some(m => m.from[0] === r && m.from[1] === c)) {
-    if (ui.selected?.[0] === r && ui.selected?.[1] === c) {
-      ui.selected = null;
-    } else {
-      ui.selected = [r, c];
-    }
+    ui.selected = [r, c];
+    sounds.vibrate(15);
     render();
   }
 }
@@ -416,14 +465,25 @@ function clickSquare(r, c) {
  */
 function doStep(move) {
   const actor = ui.turn;
-  if (move.capture) {
+  const isCapture = Boolean(move.capture);
+
+  if (isCapture) {
     ui.captured[actor]++;
+    sounds.playCapture();
+  } else {
+    sounds.playMove();
   }
+
+  ui.lastMove = { from: move.from, to: move.to };
 
   const applied = CheckersRules.apply(ui.board, move);
   ui.board = applied.board;
 
-  // Si hubo captura y no acaba de coronar en este paso, comprueba saltos adicionales obligatorios
+  if (applied.crowned) {
+    sounds.playCrown();
+  }
+
+  // Comprobar captura encadenada obligatoria
   const nextCaptures = move.capture && !applied.crowned
     ? CheckersRules.legalSteps(ui.board, actor, move.to)
     : [];
@@ -447,15 +507,14 @@ function doStep(move) {
 function finishTurn() {
   ui.turn = otherColor(ui.turn);
 
-  // Comprobar si el nuevo jugador tiene piezas o movimientos disponibles
   const hasPieces = CheckersRules.hasPieces(ui.board, ui.turn);
   const legalTurns = hasPieces ? CheckersRules.turns(ui.board, ui.turn) : [];
 
   if (!hasPieces || legalTurns.length === 0) {
     const winner = otherColor(ui.turn);
     const reason = !hasPieces
-      ? `${getPlayerName(ui.turn)} no tiene fichas restantes.`
-      : `${getPlayerName(ui.turn)} no tiene movimientos legales disponibles (bloqueado).`;
+      ? `${getPlayerName(ui.turn)} se ha quedado sin fichas.`
+      : `${getPlayerName(ui.turn)} no tiene movimientos posibles (bloqueo).`;
     endGame(winner, reason);
     return;
   }
@@ -474,7 +533,7 @@ function finishTurn() {
       if (choice) {
         executeAiSequence(choice);
       }
-    }, 400);
+    }, 450);
   }
 }
 
@@ -491,7 +550,7 @@ function executeAiSequence(steps) {
     doStep(currentMove);
 
     if (index < steps.length && ui.forced) {
-      ui.aiTimeout = setTimeout(nextStep, 260);
+      ui.aiTimeout = setTimeout(nextStep, 280);
     }
   }
 
@@ -506,6 +565,7 @@ function endGame(winner, reason) {
   ui.winner = winner;
   ui.reason = reason;
 
+  sounds.playWin();
   sendState();
   render();
   showGameOver(winner, reason, true);
@@ -532,6 +592,44 @@ function setMode(mode) {
 }
 
 /**
+ * Comparte la partida usando la Web Share API nativa o copia al portapapeles como fallback.
+ */
+async function shareGame() {
+  const url = roomUrl();
+  const shareData = {
+    title: '♛ Damas Clásicas',
+    text: '¡Únete a mi partida de Damas en línea y juguemos ahora!',
+    url: url
+  };
+
+  if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+    try {
+      await navigator.share(shareData);
+      return;
+    } catch (e) {
+      // Si el usuario canceló el share nativo, salimos sin error
+      if (e.name === 'AbortError') return;
+    }
+  }
+
+  // Fallback a portapapeles
+  const input = $('shareLink');
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch (e) {
+    input.select();
+    document.execCommand('copy');
+  }
+
+  const btn = $('shareBtn');
+  const prevText = btn.innerHTML;
+  btn.textContent = '¡Copiado!';
+  setTimeout(() => {
+    btn.innerHTML = prevText;
+  }, 1600);
+}
+
+/**
  * Inicialización de eventos al cargar la página.
  */
 function initEvents() {
@@ -552,19 +650,21 @@ function initEvents() {
   $('restart').onclick = () => start(true);
   $('playAgain').onclick = () => start(true);
 
-  $('copyLink').onclick = async () => {
-    const input = $('shareLink');
-    try {
-      await navigator.clipboard.writeText(input.value);
-    } catch (e) {
-      input.select();
-      document.execCommand('copy');
-    }
-    const btn = $('copyLink');
-    btn.textContent = '¡Copiado!';
-    setTimeout(() => {
-      btn.textContent = 'Copiar enlace';
-    }, 1500);
+  // Botón de compartir nativo / copiar
+  $('shareBtn').onclick = shareGame;
+
+  // Botón para invertir perspectiva del tablero manualmente
+  $('flipBtn').onclick = () => {
+    ui.flipped = !ui.flipped;
+    render();
+  };
+
+  // Botón de alternar sonido
+  const soundBtn = $('soundBtn');
+  soundBtn.textContent = sounds.enabled ? '🔊' : '🔇';
+  soundBtn.onclick = () => {
+    const isEnabled = sounds.toggle();
+    soundBtn.textContent = isEnabled ? '🔊' : '🔇';
   };
 
   $('newGame').onclick = () => {
@@ -577,6 +677,7 @@ function initEvents() {
       ui.roomRef = null;
       ui.connected = false;
     }
+    document.body.classList.remove('playing');
     $('game').classList.add('hidden');
     $('setup').classList.remove('hidden');
     $('resultModal').classList.add('hidden');

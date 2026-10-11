@@ -2,15 +2,18 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#102d1d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Damas clásicas</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <main class="app">
-    <header>
+    <header class="app-header">
       <h1>♛ Damas clásicas</h1>
-      <p>Captura obligatoria · Damas voladoras</p>
+      <p class="subtitle">Captura obligatoria · Damas voladoras</p>
     </header>
 
     <!-- Pantalla de configuración inicial -->
@@ -35,20 +38,26 @@
         </div>
       </div>
 
-      <button id="startButton" class="primary">Comenzar partida</button>
+      <button id="startButton" class="primary start-btn">Comenzar partida</button>
     </section>
 
     <!-- Pantalla de juego -->
-    <section id="game" class="hidden" aria-live="polite">
+    <section id="game" class="hidden game-view" aria-live="polite">
       <div class="topline">
-        <button id="newGame" class="secondary">← Opciones</button>
-        <button id="restart" class="secondary">Reiniciar</button>
+        <div class="topline-left">
+          <button id="newGame" class="secondary" title="Volver al menú">← Opciones</button>
+          <button id="restart" class="secondary" title="Reiniciar tablero">Reiniciar</button>
+        </div>
+        <div class="topline-right">
+          <button id="flipBtn" class="icon-btn" title="Girar vista del tablero" aria-label="Girar tablero">🔄</button>
+          <button id="soundBtn" class="icon-btn" title="Activar o desactivar sonido" aria-label="Sonido">🔊</button>
+        </div>
       </div>
 
       <!-- Compartir enlace para modo online -->
       <div id="shareRow" class="share hidden">
+        <button id="shareBtn" class="primary share-action-btn">📲 Invitar / Compartir enlace</button>
         <input id="shareLink" readonly aria-label="Enlace de la partida" value="">
-        <button id="copyLink" class="secondary">Copiar enlace</button>
       </div>
 
       <!-- Tarjetas de jugadores y capturas -->
@@ -74,7 +83,9 @@
       <p id="status" class="status">Turno de las blancas.</p>
 
       <!-- Tablero 8x8 -->
-      <div id="board" class="board" role="grid" aria-label="Tablero de damas"></div>
+      <div class="board-wrapper">
+        <div id="board" class="board" role="grid" aria-label="Tablero de damas"></div>
+      </div>
 
       <p class="hint">Las capturas son obligatorias. Una dama puede recorrer toda la diagonal.</p>
     </section>
@@ -98,6 +109,7 @@
   <script src="js/firebase-config.js"></script>
   <script src="js/rules.js"></script>
   <script src="js/ai.js"></script>
+  <script src="js/sound.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>
