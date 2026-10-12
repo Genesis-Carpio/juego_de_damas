@@ -1,6 +1,6 @@
 /**
  * Controlador de interfaz y flujo de juego de Damas Clásicas.
- * Optimizado para experiencia móvil (Mobile-First), táctil y multijugador online.
+ * Optimizado para experiencia móvil (Mobile-First), táctil y multijugador online con Firebase.
  */
 
 const ui = {
@@ -26,6 +26,29 @@ const ui = {
 };
 
 const $ = id => document.getElementById(id);
+
+/**
+ * Reconstruye una matriz 8x8 segura sin importar cómo Firebase haya serializado los nulls.
+ */
+function deserializeBoard(b) {
+  const board = Array.from({ length: 8 }, () => Array(8).fill(null));
+  if (!b) return CheckersRules.initialBoard();
+
+  for (let r = 0; r < 8; r++) {
+    const row = b[r];
+    if (!row) continue;
+    for (let c = 0; c < 8; c++) {
+      const cell = row[c];
+      if (cell && (cell.color === WHITE || cell.color === BLACK)) {
+        board[r][c] = {
+          color: cell.color,
+          king: Boolean(cell.king)
+        };
+      }
+    }
+  }
+  return board;
+}
 
 /**
  * Retorna el nombre legible del bando o entidad.
@@ -73,18 +96,18 @@ function publicState() {
   return {
     board: ui.board,
     turn: ui.turn,
-    forced: ui.forced,
-    captured: ui.captured,
-    lastMove: ui.lastMove,
-    over: ui.over,
-    winner: ui.winner,
-    reason: ui.reason,
-    gameId: ui.gameId
+    forced: ui.forced || null,
+    captured: ui.captured || { white: 0, black: 0 },
+    lastMove: ui.lastMove || null,
+    over: Boolean(ui.over),
+    winner: ui.winner || null,
+    reason: ui.reason || null,
+    gameId: ui.gameId || null
   };
 }
 
 /**
- * Aplica el estado recibido desde Firebase y sincroniza la interfaz.
+ * Aplica el estado recibido desde Firebase y sincroniza la interfaz de forma segura.
  */
 function applyRemoteState(state) {
   if (!state) return;
@@ -92,9 +115,9 @@ function applyRemoteState(state) {
   const previousOver = ui.over;
   const previousLastMove = ui.lastMove;
 
-  ui.board = state.board;
-  ui.turn = state.turn;
-  ui.forced = state.forced;
+  ui.board = deserializeBoard(state.board);
+  ui.turn = state.turn === BLACK ? BLACK : WHITE;
+  ui.forced = state.forced || null;
   ui.captured = state.captured || { white: 0, black: 0 };
   ui.lastMove = state.lastMove || null;
   ui.over = Boolean(state.over);
@@ -160,9 +183,10 @@ function updateShare() {
 
 /**
  * Conexión a la sala de Firebase Realtime Database.
+ * Emparejamiento directo, rápido y sin transacciones que colisionen.
  */
 async function connectRoom() {
-  if (!window.firebaseConfig || window.firebaseConfig.apiKey.startsWith('REEMPLAZA')) {
+  if (!window.firebaseConfig || !window.firebaseConfig.apiKey) {
     $('status').textContent = 'Configura Firebase en js/firebase-config.js.';
     return;
   }
@@ -178,54 +202,68 @@ async function connectRoom() {
 
   const db = firebase.database();
   const playerId = getPlayerId();
-  ui.roomRef = db.ref(`checkers-rooms/${ui.roomId}`);
+  const roomRef = db.ref(`checkers-rooms/${ui.roomId}`);
+  ui.roomRef = roomRef;
 
-  try {
-    const result = await ui.roomRef.transaction(room => {
-      room = room || { state: publicState(), players: {} };
-      room.players = room.players || {};
-
-      if (!room.players[playerId]) {
-        const occupied = Object.values(room.players);
-        if (!occupied.includes(WHITE)) {
-          room.players[playerId] = WHITE;
-        } else if (!occupied.includes(BLACK)) {
-          room.players[playerId] = BLACK;
-        } else {
-          room.players[playerId] = 'spectator';
-        }
-      }
-      return room;
-    });
-
-    if (!result.committed || !result.snapshot) {
-      $('status').textContent = 'No se pudo conectar a la sala.';
-      return;
+  // 1. Suscripción en tiempo real a los cambios de estado de la partida
+  roomRef.child('state').on('value', snapshot => {
+    const data = snapshot.val();
+    if (data) {
+      applyRemoteState(data);
     }
+  });
 
-    const roomData = result.snapshot.val();
-    ui.player = roomData?.players?.[playerId] || 'spectator';
-    ui.connected = true;
-
-    // Si somos Negras, orientamos el tablero automáticamente para jugar desde abajo
-    if (ui.player === BLACK) {
+  // 2. Suscripción en tiempo real a los jugadores de la sala
+  roomRef.child('players').on('value', snapshot => {
+    const players = snapshot.val() || {};
+    if (players.white === playerId) {
+      ui.player = WHITE;
+      ui.flipped = false;
+    } else if (players.black === playerId) {
+      ui.player = BLACK;
       ui.flipped = true;
     } else {
+      ui.player = 'spectator';
+    }
+    ui.connected = true;
+    render();
+  });
+
+  // 3. Registrar o conectar a la sala
+  try {
+    const snap = await roomRef.once('value');
+    const roomData = snap.val();
+
+    if (!roomData || !roomData.players || !roomData.players.white) {
+      // Sala nueva: nos convertimos en el anfitrión (Blancas)
+      await roomRef.set({
+        players: { white: playerId },
+        state: publicState()
+      });
+      ui.player = WHITE;
       ui.flipped = false;
+    } else {
+      // Sala existente: comprobamos si somos anfitrión, invitado o nuevo rival
+      const players = roomData.players;
+      if (players.white === playerId) {
+        ui.player = WHITE;
+        ui.flipped = false;
+      } else if (!players.black || players.black === playerId) {
+        // Asignar las Negras al invitado
+        await roomRef.child('players/black').set(playerId);
+        ui.player = BLACK;
+        ui.flipped = true;
+      } else {
+        ui.player = 'spectator';
+      }
     }
 
-    ui.roomRef.child('state').on('value', snapshot => {
-      const data = snapshot.val();
-      if (data) {
-        applyRemoteState(data);
-      }
-    });
-
+    ui.connected = true;
     updateShare();
     render();
   } catch (error) {
     console.error('Firebase error:', error);
-    $('status').textContent = 'No se pudo conectar a Firebase (revisa la conexión y reglas).';
+    $('status').textContent = 'No se pudo conectar a Firebase (revisa la conexión).';
   }
 }
 
@@ -233,6 +271,8 @@ async function connectRoom() {
  * Inicia o reinicia una partida.
  */
 function start(isRestart = false) {
+  sounds.init();
+
   if (ui.aiTimeout) {
     clearTimeout(ui.aiTimeout);
     ui.aiTimeout = null;
@@ -294,7 +334,6 @@ function start(isRestart = false) {
     }
   }
 
-  // En pantalla pequeña compactamos la app al entrar al juego
   document.body.classList.add('playing');
   $('setup').classList.add('hidden');
   $('game').classList.remove('hidden');
@@ -309,6 +348,8 @@ function start(isRestart = false) {
  */
 function render() {
   const boardEl = $('board');
+  if (!ui.board) ui.board = CheckersRules.initialBoard();
+
   const legal = ui.over ? [] : CheckersRules.legalSteps(ui.board, ui.turn, ui.forced);
   const moves = selectedMoves(legal);
 
@@ -327,7 +368,7 @@ function render() {
   for (const r of rows) {
     for (const c of cols) {
       const cell = document.createElement('button');
-      const piece = ui.board[r][c];
+      const piece = ui.board[r] ? ui.board[r][c] : null;
       const isDark = (r + c) % 2 === 1;
 
       cell.className = `square ${isDark ? 'dark' : 'light'}`;
@@ -446,16 +487,16 @@ function clickSquare(r, c) {
   if (ui.forced) return;
 
   // Deseleccionar al pulsar en la misma ficha o en una casilla vacía
-  if (ui.selected && (!ui.board[r][c] || (ui.selected[0] === r && ui.selected[1] === c))) {
+  if (ui.selected && (!ui.board[r] || !ui.board[r][c] || (ui.selected[0] === r && ui.selected[1] === c))) {
     ui.selected = null;
     render();
     return;
   }
 
   // Seleccionar pieza propia que tenga movimientos válidos
-  if (ui.board[r][c]?.color === ui.turn && legal.some(m => m.from[0] === r && m.from[1] === c)) {
+  if (ui.board[r]?.[c]?.color === ui.turn && legal.some(m => m.from[0] === r && m.from[1] === c)) {
     ui.selected = [r, c];
-    sounds.vibrate(15);
+    sounds.playMove();
     render();
   }
 }
@@ -595,6 +636,7 @@ function setMode(mode) {
  * Comparte la partida usando la Web Share API nativa o copia al portapapeles como fallback.
  */
 async function shareGame() {
+  sounds.init();
   const url = roomUrl();
   const shareData = {
     title: '♛ Damas Clásicas',
@@ -607,7 +649,6 @@ async function shareGame() {
       await navigator.share(shareData);
       return;
     } catch (e) {
-      // Si el usuario canceló el share nativo, salimos sin error
       if (e.name === 'AbortError') return;
     }
   }
@@ -623,7 +664,7 @@ async function shareGame() {
 
   const btn = $('shareBtn');
   const prevText = btn.innerHTML;
-  btn.textContent = '¡Copiado!';
+  btn.textContent = '¡Copiado al portapapeles!';
   setTimeout(() => {
     btn.innerHTML = prevText;
   }, 1600);
@@ -655,6 +696,7 @@ function initEvents() {
 
   // Botón para invertir perspectiva del tablero manualmente
   $('flipBtn').onclick = () => {
+    sounds.init();
     ui.flipped = !ui.flipped;
     render();
   };
@@ -668,6 +710,7 @@ function initEvents() {
   };
 
   $('newGame').onclick = () => {
+    sounds.init();
     if (ui.aiTimeout) {
       clearTimeout(ui.aiTimeout);
       ui.aiTimeout = null;
